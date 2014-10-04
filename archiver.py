@@ -13,37 +13,45 @@ from requests.exceptions import HTTPError
 Customization Configuration
 
 """
-# Default postID: #
-postID='15zmjl'
+
+subreddit = '[Put subreddit name here (i.e. technology)]'
+
+login = True;
+username = '[Reddit username]'
+password = '[Reddit password]'
+
+startingPostID = '[Starting Reddit Post ID]'
+
 # Path to which to output the file #
-outputFilePath='./'
+outputFilePath='./posts/'
 # The Path to the stylesheet, relative to where the html file will be stored #
 pathToCSS='css/style.css'
 
+batchTitles = []
+batchIDS = []
+batchDates = []
+batchUsernames = []
+batchUsernameURLs = []
+
+currentIndex = 0
+
 """
-Reddit Post Archiver
-By Samuel Johnson Stoever
+Subreddit Archiver
+By Adam Gastineau (original source from Samuel Johnson Stoever)
 """
 
-if len(sys.argv) == 1:
-    print('No post ID was provided. Using default postID.')
-elif len(sys.argv) > 2:
-    print('Too Many Arguments. Using default postID.')
-else:
-    postID = sys.argv[1]
-outputFilePath = outputFilePath + postID + '.html'
 monthsList = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
 
-def writeHeader(posttitle):
+def writeHeader(posttitle, htmlFile):
     htmlFile.write('<!DOCTYPE html>\n<html>\n<head>\n')
     htmlFile.write('\t<meta charset="utf-8"/>\n')
-    htmlFile.write('\t<link type="text/css" rel="stylesheet" href="' + pathToCSS +'"/>\n')
+    htmlFile.write('\t<link type="text/css" rel="stylesheet" href="../' + pathToCSS +'"/>\n')
     htmlFile.write('\t<title>' + posttitle + '</title>\n')
     htmlFile.write('</head>\n<body>\n')
 
-def parsePost(postObject):
-    writeHeader(fixUnicode(postObject.title))
+def parsePost(postObject, htmlFile):
+    writeHeader(fixUnicode(postObject.title), htmlFile)
     postObject.replace_more_comments()
     postAuthorName = ''
     postAuthorExists = 0
@@ -51,7 +59,7 @@ def parsePost(postObject):
         postAuthorName = fixUnicode(postObject.author.name)
         postAuthorExists = 1
     except AttributeError:
-    	postAuthorExists = 0
+        postAuthorExists = 0
     htmlFile.write('<div class="title">\n')
     if postObject.is_self:
         # The post is a self post
@@ -100,14 +108,14 @@ def parsePost(postObject):
         htmlFile.write('</p>\n</div>\n')
     htmlFile.write('</div>\n')
     for comment in postObject._comments:
-        parseComment(comment, postAuthorName, postAuthorExists)
+        parseComment(comment, postAuthorName, postAuthorExists, htmlFile, True)
     htmlFile.write('<hr id="footerhr">\n')
     htmlFile.write('<div id="footer"><em>Archived on ')
     htmlFile.write(str(datetime.datetime.utcnow()))
     htmlFile.write(' UTC</em></div>')
     htmlFile.write('\n\n</body>\n</html>\n')
     #Done
-def parseComment(redditComment, postAuthorName, postAuthorExists, isRoot=True):
+def parseComment(redditComment, postAuthorName, postAuthorExists, htmlFile, isRoot=True):
     commentAuthorName = ''
     commentAuthorExists = 0
     try:
@@ -142,24 +150,108 @@ def parseComment(redditComment, postAuthorName, postAuthorExists, isRoot=True):
     htmlFile.write('</em></div>\n')
     htmlFile.write(snudown.markdown(fixMarkdown(redditComment.body)))
     for reply in redditComment._replies:
-        parseComment(reply, postAuthorName, postAuthorExists, False)
+        parseComment(reply, postAuthorName, postAuthorExists, htmlFile, False)
     htmlFile.write('</div>\n')
     #Done
 def fixMarkdown(markdown):
     newMarkdown = markdown.encode('utf8')
-    return re.sub('\&gt;', '>', str(newMarkdown))
+    return re.sub('\&gt;', '>', newMarkdown)
 def fixUnicode(text):
-    return str(text.encode('utf8'))
-# End Function Definitions
-r = praw.Reddit(user_agent='RedditPostArchiver Bot, version 0.93')
-# Disclaimer, storing plain text passwords is bad.
-# uncomment the following line to login (e.g., in case of Unable to Archive Post:
-# r.login('username', 'password')
-try:
-    thePost = r.get_submission(submission_id=postID)
-    htmlFile = open(outputFilePath,'w')
-    parsePost(thePost)
+    return text.encode('utf8')
+def createPost(post):
+    finalFilePath = outputFilePath + post.id + '.html'
+    htmlFile = open(finalFilePath,'w')
+    parsePost(post, htmlFile)
     htmlFile.close()
+
+def writeIndexHeader(htmlFile):
+    htmlFile.write('<!DOCTYPE html>\n<html>\n<head>\n')
+    htmlFile.write('\t<meta charset="utf-8"/>\n')
+    htmlFile.write('\t<link type="text/css" rel="stylesheet" href="css/index.css"/>\n')
+    fileNumber = '';
+    if(currentIndex != 0):
+        fileNumber = ' - Page ' + str(currentIndex+1)
+    title = subreddit + ' Index' + fileNumber;
+    htmlFile.write('\t<title>' + title + '</title>\n')
+    htmlFile.write('</head>\n<body>\n')
+    htmlFile.write('<div class="title">' + title + '</div>')
+
+def createIndex():
+    fileNumber = ''
+    if(currentIndex != 0):
+        fileNumber = str(currentIndex)
+    finalFilePath = './' + 'index' + fileNumber + '.html'
+    htmlFile = open(finalFilePath,'w')
+    writeIndexHeader(htmlFile)
+    htmlFile.write('<div class="postlinks">')
+    i = 0;
+    for title in batchTitles:
+        htmlFile.write('<div class="link">')
+        htmlFile.write('<a href="' + outputFilePath + batchIDS[i] + '.html">' + title + '</a><br>')
+        url = ''
+        if(batchUsernameURLs[i] != ''):
+            url = 'href="' + batchUsernameURLs[i] + '"'
+        htmlFile.write('<a class="username" ' + url + '>By ' + batchUsernames[i] + '</a>')
+        htmlFile.write('<div class="date">')
+        htmlFile.write('Posted at ')
+        postDate = batchDates[i]
+        htmlFile.write(str(postDate.tm_hour) + ':')
+        htmlFile.write(str(postDate.tm_min) + ' UTC on ')
+        htmlFile.write(monthsList[postDate.tm_mon-1] + ' ')
+        htmlFile.write(str(postDate.tm_mday) + ', ' + str(postDate.tm_year))
+        htmlFile.write('</div>')
+        htmlFile.write('</div>')
+        i = i+1
+    htmlFile.write('</div>')
+    htmlFile.write('<div class="nav">')
+    if(currentIndex != 0):
+        index = ''
+        if(currentIndex-1 != 0):
+            index = str(currentIndex-1)
+        htmlFile.write('<a href="' + './index' + index + '.html">Prev</a>')
+    htmlFile.write('<a href="' + './index' + str(currentIndex+1) + '.html">Next</a>')
+    htmlFile.write('</div>')
+    htmlFile.write('\n\n</body>\n</html>\n')
+    htmlFile.close()
+
+# End Function Definitions
+
+
+r = praw.Reddit(user_agent='Subreddit Archiver, version 0.1 by agg23')
+if login:
+    r.login(username, password)
+try:
+    submissions = r.get_subreddit(subreddit).get_new(limit=None, params={'after': startingPostID});
+    i = 0;
+    for x in submissions:
+        i = i+1;
+        createPost(x);
+        print('Downloading ' + fixUnicode(x.id))
+        batchTitles.append(fixUnicode(x.title));
+        batchIDS.append(fixUnicode(x.id));
+        batchDates.append(time.gmtime(x.created_utc));
+        postAuthorName = ''
+        postAuthorURL = ''
+        try:
+            postAuthorName = fixUnicode(x.author.name)
+            postAuthorURL = fixUnicode(x.author._url)
+        except AttributeError:
+            postAuthorName = '[Deleted]'
+        batchUsernames.append(postAuthorName);
+        batchUsernameURLs.append(postAuthorURL);
+        if(i == 25):
+            i = 0
+            print('Building index ' + str(currentIndex))
+            createIndex()
+            batchTitles = []
+            batchIDS = []
+            batchDates = []
+            batchUsernames = []
+            batchUsernameURLs = []
+            currentIndex = currentIndex+1
+
+        time.sleep(2)
+    createIndex()
 except HTTPError: 
-    print('Unable to Archive Post: Invalid PostID or Log In Required (see line 157 of script)')
+    print('Unable to Archive Subreddit: Invalid Subreddit or Log In Required (see line 157 of script)')
 ##Done
